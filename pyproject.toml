@@ -1,0 +1,22 @@
+[project]
+name = "x2md"
+version = "0.2.0"
+description = "Convert .docx files to Markdown with MCP server"
+requires-python = ">=3.10"
+dependencies = [
+    "markitdown[all]>=0.1.0",
+    "mcp>=1.0.0",
+]
+
+[project.scripts]
+x2md-mcp = "x2md.mcp_server:main"
+
+[project.optional-dependencies]
+llm = ["openai>=1.0.0"]
+
+[tool.uv]
+index-url = "https://mirrors.aliyun.com/pypi/simple"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
