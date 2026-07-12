@@ -9,46 +9,119 @@ import zipfile
 from pathlib import Path
 
 
+def _extract_table_xml_elements(xml_content: str) -> list[str]:
+    """Extract all top-level w:tbl XML elements with correct nesting.
+
+    Uses depth tracking to correctly pair each ``<w:tbl>`` with its
+    corresponding ``</w:tbl>``, even when nested tables are present.
+    """
+    tables: list[str] = []
+    depth = 0
+    start = -1
+
+    for m in re.finditer(r"<w:tbl[ >]|</w:tbl>", xml_content):
+        if m.group().startswith("</w:tbl>"):
+            depth -= 1
+            if depth == 0 and start >= 0:
+                tables.append(xml_content[start : m.end()])
+                start = -1
+        elif m.group().startswith("<w:tbl"):
+            if depth == 0:
+                start = m.start()
+            depth += 1
+
+    return tables
+
+
 def _extract_cell_paragraphs(cell_xml: str) -> list:
     """Extract all paragraph HTML text from a w:tc XML element.
 
     Each w:p becomes a paragraph (separated by <br>),
     w:r with w:b and w:i are converted to <b>/<i> tags.
+    Nested w:tbl elements are recursively converted to HTML and
+    inserted as separate paragraphs.
     Returns a list of paragraph text strings.
     """
+    # Split cell content into segments: paragraphs and nested tables
+    segments: list[tuple[str, str]] = []  # (type, xml)
+
+    # Find all <w:p> and <w:tbl> at the top level of this cell
+    pattern = re.compile(
+        r"<w:p[ >].*?</w:p>|<w:p\s*/>|<w:tbl[ >].*?</w:tbl>",
+        re.DOTALL,
+    )
+    matches = list(pattern.finditer(cell_xml))
+
+    if not matches:
+        return []
+
+    # Process nested tables: depth-aware extraction
+    # The simple regex above can mis-pair nested tables, so
+    # re-extract with depth tracking for <w:tbl> segments
+    i = 0
+    while i < len(matches):
+        m = matches[i]
+        raw = m.group()
+        if raw.startswith("<w:tbl"):
+            # Depth-aware extraction for this nested table
+            tbl_start = m.start()
+            depth = 0
+            tbl_end = tbl_start
+            for inner_m in re.finditer(
+                r"<w:tbl[ >]|</w:tbl>", cell_xml[tbl_start:]
+            ):
+                if inner_m.group().startswith("</w:tbl>"):
+                    depth -= 1
+                    if depth == 0:
+                        tbl_end = tbl_start + inner_m.end()
+                        break
+                elif inner_m.group().startswith("<w:tbl"):
+                    depth += 1
+            raw = cell_xml[tbl_start:tbl_end]
+            # Skip any regex matches consumed by this nested table
+            while i < len(matches) and matches[i].start() < tbl_end:
+                i += 1
+            segments.append(("tbl", raw))
+        else:
+            segments.append(("p", raw))
+            i += 1
+
     paragraphs = []
-    para_matches = re.findall(r"<w:p[ >].*?</w:p>", cell_xml, re.DOTALL)
-    if not para_matches:
-        para_matches = re.findall(r"<w:p\s*/>", cell_xml, re.DOTALL)
-
-    for p_xml in para_matches:
-        runs = re.findall(r"<w:r[ >].*?</w:r>", p_xml, re.DOTALL)
-        if not runs:
-            paragraphs.append("")
-            continue
-
-        run_texts = []
-        for r_xml in runs:
-            is_bold = bool(
-                re.search(r"<w:b\s*/>", r_xml) or re.search(r"<w:b[ >]", r_xml)
-            )
-            is_italic = bool(
-                re.search(r"<w:i\s*/>", r_xml) or re.search(r"<w:i[ >]", r_xml)
-            )
-
-            texts = re.findall(r"<w:t[^>]*>([^<]*)</w:t>", r_xml)
-            text = "".join(texts)
-
-            if not text:
+    for seg_type, seg_xml in segments:
+        if seg_type == "tbl":
+            nested_html = parse_table_to_html(seg_xml)
+            if nested_html:
+                paragraphs.append(nested_html)
+        else:
+            runs = re.findall(r"<w:r[ >].*?</w:r>", seg_xml, re.DOTALL)
+            if not runs:
+                paragraphs.append("")
                 continue
 
-            if is_bold:
-                text = f"<b>{text}</b>"
-            if is_italic:
-                text = f"<i>{text}</i>"
-            run_texts.append(text)
+            run_texts = []
+            for r_xml in runs:
+                is_bold = bool(
+                    re.search(r"<w:b\s*/>", r_xml)
+                    or re.search(r"<w:b[ >]", r_xml)
+                )
+                is_italic = bool(
+                    re.search(r"<w:i\s*/>", r_xml)
+                    or re.search(r"<w:i[ >]", r_xml)
+                )
 
-        paragraphs.append("".join(run_texts))
+                texts = re.findall(r"<w:t[^>]*>([^<]*)</w:t>", r_xml)
+                text = "".join(texts)
+
+                if not text:
+                    continue
+
+                if is_bold:
+                    text = f"<b>{text}</b>"
+                if is_italic:
+                    text = f"<i>{text}</i>"
+                run_texts.append(text)
+
+            paragraphs.append("".join(run_texts))
 
     return paragraphs
 
@@ -195,7 +268,7 @@ def extract_tables(docx_path: str | Path) -> list:
             return []
         xml_content = z.read("word/document.xml").decode("utf-8")
 
-    table_matches = re.findall(r"<w:tbl[ >].*?</w:tbl>", xml_content, re.DOTALL)
+    table_matches = _extract_table_xml_elements(xml_content)
     html_tables = []
     for tbl_xml in table_matches:
         html = parse_table_to_html(tbl_xml)
