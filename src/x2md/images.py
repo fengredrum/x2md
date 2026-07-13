@@ -9,6 +9,7 @@ import os
 import re
 import zipfile
 from pathlib import Path
+from urllib.parse import quote
 from xml.etree import ElementTree as ET
 
 
@@ -143,7 +144,7 @@ def fix_references(
     for idx, (name, rid, _) in enumerate(doc_images, 1):
         if rid and rid in rid_to_filename:
             ext = os.path.splitext(rid_to_filename[rid])[1] or ".png"
-            img_ref = f"images/{doc_stem}/fig_{idx}{ext}"
+            img_ref = f"images/{quote(doc_stem, safe='')}/fig_{idx}{ext}"
             image_refs.append((name, img_ref))
 
     # Replace truncated base64 references with local file references
