@@ -12,7 +12,7 @@ from x2md.converter import convert
 
 mcp = FastMCP(
     "x2md",
-    instructions="Convert .docx and .pdf files to Markdown with image extraction and HTML tables",
+    instructions="Convert .docx, .pdf, and .xlsx/.xls files to Markdown with image extraction and HTML tables",
 )
 
 
@@ -132,6 +132,51 @@ def convert_pdf_to_markdown(
         f"  Output: {result_path}\n"
         f"  Size:   {file_size:,} bytes\n"
         f"  Images: {img_count} extracted"
+    )
+
+
+@mcp.tool()
+def convert_excel_to_markdown(
+    input_path: str,
+    output_dir: str | None = None,
+) -> str:
+    """Convert a .xlsx/.xls file to Markdown with HTML tables.
+
+    Each worksheet becomes a ## section. Tables are converted to HTML
+    format preserving merged cells (colspan/rowspan) and cell styles
+    (bold, italic, font size, colors, background, alignment, borders).
+
+    .xlsx files use openpyxl (full style support).
+    .xls files use xlrd (requires pip install x2md[xls]).
+
+    Args:
+        input_path: Absolute path to the input .xlsx or .xls file.
+        output_dir: Directory for the output .md file.
+                    Defaults to the same directory as the input file.
+
+    Returns:
+        A summary of the conversion result.
+    """
+    from x2md.excel_converter import convert_excel
+
+    try:
+        result_path = convert_excel(
+            input_path=input_path,
+            output_dir=output_dir,
+        )
+    except ImportError as e:
+        return (
+            f"Excel conversion dependency missing.\n"
+            f"  {e}\n"
+            f"  Install with: pip install x2md[xls]"
+        )
+
+    file_size = result_path.stat().st_size
+    return (
+        f"Conversion complete.\n"
+        f"  Input:  {input_path}\n"
+        f"  Output: {result_path}\n"
+        f"  Size:   {file_size:,} bytes"
     )
 
 

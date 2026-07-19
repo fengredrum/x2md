@@ -1,3 +1,3 @@
-"""x2md: Convert Microsoft Word .docx files to Markdown."""
+"""x2md: Convert .docx, .pdf, and .xlsx/.xls files to Markdown."""
 
-__version__ = "0.2.0"
+__version__ = "0.4.0"
